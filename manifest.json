@@ -1,0 +1,11 @@
+{
+	"id": "lexma",
+	"name": "Lexma",
+	"version": "1.0.0",
+	"minAppVersion": "1.7.2",
+	"description": "Lexma Obsidian extension.",
+	"author": "Ammar Alasad",
+	"authorUrl": "https://github.com/AmmarAlasad",
+	"fundingUrl": "https://obsidian.md/pricing",
+	"isDesktopOnly": false
+}
