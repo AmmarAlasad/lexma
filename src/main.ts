@@ -41,7 +41,7 @@ export default class LexmaPlugin extends Plugin {
 		this.registerView(
 			LEXMA_SIDEBAR_VIEW_TYPE,
 			(leaf) => {
-				const view = new SidebarView(leaf);
+				const view = new SidebarView(leaf, this.settings);
 
 				// Connect Start/Stop recording triggers
 				view.onRecordToggle(async (isRecording) => {
@@ -80,8 +80,10 @@ export default class LexmaPlugin extends Plugin {
 				this.orchestrator.onStateChange = () => {
 					if (this.orchestrator.isRecording) {
 						view.setStatus('recording');
+						view.updateSyncTimer(this.orchestrator.syncSecondsRemaining);
 					} else {
 						view.setStatus('idle');
+						view.updateSyncTimer(null);
 					}
 
 					// Update active slide and active note display
@@ -216,6 +218,10 @@ export default class LexmaPlugin extends Plugin {
 		await this.saveData(this.settings);
 		if (this.orchestrator) {
 			this.orchestrator.updateSettings(this.settings);
+		}
+		const leaf = this.app.workspace.getLeavesOfType(LEXMA_SIDEBAR_VIEW_TYPE)[0];
+		if (leaf && leaf.view instanceof SidebarView) {
+			(leaf.view as SidebarView).updateSettings(this.settings);
 		}
 	}
 }

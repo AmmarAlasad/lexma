@@ -1,4 +1,5 @@
 import { ItemView, WorkspaceLeaf, MarkdownRenderer } from 'obsidian';
+import { LexmaSettings } from '../types';
 
 export const LEXMA_SIDEBAR_VIEW_TYPE = 'lexma-sidebar-view';
 
@@ -6,10 +7,12 @@ export class SidebarView extends ItemView {
     private status: 'idle' | 'recording' | 'transcribing' = 'idle';
     private onRecordToggleCallback: ((isRecording: boolean) => void) | null = null;
     private onSendChatCallback: ((message: string) => void) | null = null;
+    public settings: LexmaSettings;
 
     // DOM Elements
     private statusDotEl!: HTMLDivElement;
     private statusTextEl!: HTMLSpanElement;
+    private syncTimerEl!: HTMLSpanElement;
     private recordBtnEl!: HTMLButtonElement;
     private activePdfEl!: HTMLDivElement;
     private activeNoteEl!: HTMLDivElement;
@@ -21,8 +24,9 @@ export class SidebarView extends ItemView {
     private lastMsgEl: HTMLDivElement | null = null;
     private lastMsgText = '';
 
-    constructor(leaf: WorkspaceLeaf) {
+    constructor(leaf: WorkspaceLeaf, settings: LexmaSettings) {
         super(leaf);
+        this.settings = settings;
     }
 
     getViewType(): string {
@@ -46,17 +50,32 @@ export class SidebarView extends ItemView {
 
         // 1. Header Section
         const header = sidebar.createDiv({ cls: 'lexma-header' });
-        header.createEl('h3', { text: 'Lexma', cls: 'lexma-title' });
+        
+        // Compact Top Row: Title & Status
+        const topRow = header.createDiv({ cls: 'lexma-header-top-row' });
+        topRow.createEl('span', { text: 'Lexma', cls: 'lexma-title' });
 
         // Status Bar
-        const statusBar = header.createDiv({ cls: 'lexma-status-bar' });
+        const statusBar = topRow.createDiv({ cls: 'lexma-status-bar' });
         this.statusDotEl = statusBar.createDiv({ cls: 'lexma-status-dot status-idle' });
         this.statusTextEl = statusBar.createSpan({ text: 'Idle' });
+        this.syncTimerEl = statusBar.createSpan({ cls: 'lexma-sync-timer lexma-hidden', text: '' });
 
-        // Active target indicators
-        const targetsContainer = header.createDiv({ cls: 'lexma-targets-container' });
-        this.activePdfEl = targetsContainer.createDiv({ cls: 'lexma-active-target', text: 'Active PDF: None' });
-        this.activeNoteEl = targetsContainer.createDiv({ cls: 'lexma-active-target', text: 'Active Note: None' });
+        // Toggle record button visibility on status bar click (Hide Mode recovery)
+        statusBar.addEventListener('click', () => {
+            if (this.recordBtnEl) {
+                if (this.recordBtnEl.hasClass('lexma-btn-hidden')) {
+                    this.recordBtnEl.removeClass('lexma-btn-hidden');
+                } else if (this.status === 'recording' || this.status === 'transcribing') {
+                    this.recordBtnEl.addClass('lexma-btn-hidden');
+                }
+            }
+        });
+
+        // Active target indicators (single row)
+        const targetsRow = header.createDiv({ cls: 'lexma-targets-row' });
+        this.activePdfEl = targetsRow.createDiv({ cls: 'lexma-target-item', text: '📄 None' });
+        this.activeNoteEl = targetsRow.createDiv({ cls: 'lexma-target-item', text: '📝 None' });
 
         // Record Button
         this.recordBtnEl = header.createEl('button', { cls: 'lexma-record-btn' });
@@ -166,10 +185,12 @@ export class SidebarView extends ItemView {
 
     public updateTargets(pdfName: string | null, page: number | null, noteName: string | null) {
         if (this.activePdfEl) {
-            this.activePdfEl.setText(pdfName ? `Active PDF: ${pdfName} (Page ${page})` : 'Active PDF: None');
+            this.activePdfEl.setText(pdfName ? `📄 ${pdfName} (P${page})` : '📄 None');
+            this.activePdfEl.setAttribute('title', pdfName ? `Active PDF: ${pdfName} (Page ${page})` : 'No active PDF');
         }
         if (this.activeNoteEl) {
-            this.activeNoteEl.setText(noteName ? `Active Note: ${noteName}` : 'Active Note: None');
+            this.activeNoteEl.setText(noteName ? `📝 ${noteName}` : '📝 None');
+            this.activeNoteEl.setAttribute('title', noteName ? `Active Note: ${noteName}` : 'No active Note');
         }
     }
 
@@ -178,11 +199,34 @@ export class SidebarView extends ItemView {
 
         if (this.status === 'recording' || this.status === 'transcribing') {
             this.recordBtnEl.className = 'lexma-record-btn is-recording';
-            this.recordBtnEl.setText('Stop recording');
+            this.recordBtnEl.innerHTML = '<span class="lexma-record-dot"></span> Stop recording';
+            if (this.settings.hideRecordButton) {
+                this.recordBtnEl.addClass('lexma-btn-hidden');
+            } else {
+                this.recordBtnEl.removeClass('lexma-btn-hidden');
+            }
         } else {
             this.recordBtnEl.className = 'lexma-record-btn';
-            this.recordBtnEl.setText('Start recording');
+            this.recordBtnEl.innerHTML = 'Start recording';
+            this.recordBtnEl.removeClass('lexma-btn-hidden');
         }
+    }
+
+    public updateSyncTimer(secondsRemaining: number | null) {
+        if (!this.syncTimerEl) return;
+
+        if (secondsRemaining === null || secondsRemaining === undefined) {
+            this.syncTimerEl.addClass('lexma-hidden');
+            this.syncTimerEl.setText('');
+        } else {
+            this.syncTimerEl.removeClass('lexma-hidden');
+            this.syncTimerEl.setText(`• Append in: ${secondsRemaining}s`);
+        }
+    }
+
+    public updateSettings(settings: LexmaSettings) {
+        this.settings = settings;
+        this.updateRecordButtonUI();
     }
 
     private handleRecordToggle() {
@@ -221,15 +265,15 @@ export class SidebarView extends ItemView {
         }
 
         const isSystem = text.startsWith('[System]') || text.startsWith('[System]:') || text.includes('🤖 [Agent]:');
-        const fragmentClass = isSystem ? 'lexma-transcript-fragment is-system' : 'lexma-transcript-fragment';
+        const fragmentClass = isSystem ? 'lexma-transcript-line is-system' : 'lexma-transcript-line';
         const fragment = this.timelineContainerEl.createDiv({ cls: fragmentClass });
 
+        fragment.createDiv({ text: `[${timestamp}]`, cls: 'lexma-transcript-time' });
+        const textEl = fragment.createDiv({ cls: 'lexma-transcript-text' });
+
         if (isSystem) {
-            const textEl = fragment.createDiv({ cls: 'lexma-fragment-text' });
-            MarkdownRenderer.render(this.app, `*${timestamp} - ${text}*`, textEl, '', this);
+            MarkdownRenderer.render(this.app, `*${text}*`, textEl, '', this);
         } else {
-            fragment.createDiv({ text: timestamp, cls: 'lexma-fragment-time' });
-            const textEl = fragment.createDiv({ cls: 'lexma-fragment-text' });
             MarkdownRenderer.render(this.app, text, textEl, '', this);
         }
 

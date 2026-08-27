@@ -6,6 +6,10 @@ export interface LexmaSettings {
 	vadThreshold: number;
 	systemPrompt: string;
 	syncInterval: number;
+	maxAppendLength: number;
+	maxRecordTime: number;
+	hideRecordButton: boolean;
+	pdfRefMode: 'none' | 'preview' | 'dropdown';
 }
 
 export interface SlideContext {

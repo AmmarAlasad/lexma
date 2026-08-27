@@ -18,13 +18,13 @@
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 10px;
-    padding-bottom: 12px;
+    gap: 6px;
+    padding-bottom: 8px;
     border-bottom: 1px solid var(--border-color);
 }
 
 .lexma-title {
-    font-size: 1.4em;
+    font-size: 1.15em;
     font-weight: 700;
     margin: 0;
     color: var(--text-normal);
@@ -97,15 +97,18 @@
     align-items: center;
     justify-content: center;
     gap: 8px;
-    width: 100%;
-    padding: 10px 16px;
-    border-radius: 8px;
+    width: auto;
+    max-width: 180px;
+    margin: 0 auto;
+    padding: 6px 12px;
+    border-radius: 6px;
     border: 1px solid var(--border-color);
     background-color: var(--background-primary);
     color: var(--text-normal);
     font-weight: 600;
+    font-size: 0.85em;
     cursor: pointer;
-    transition: all 0.2s ease;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .lexma-record-btn:hover {
@@ -117,12 +120,43 @@
     background-color: #ef4444;
     border-color: #ef4444;
     color: #ffffff;
-    box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3);
+    box-shadow: 0 2px 8px rgba(239, 68, 68, 0.3);
+    animation: lexma-btn-pulse 2s infinite;
 }
 
 .lexma-record-btn.is-recording:hover {
     background-color: #dc2626;
-    box-shadow: 0 4px 16px rgba(220, 38, 38, 0.4);
+    box-shadow: 0 2px 10px rgba(220, 38, 38, 0.4);
+}
+
+.lexma-record-dot {
+    width: 6px;
+    height: 6px;
+    background-color: #ffffff;
+    border-radius: 50%;
+    display: inline-block;
+    animation: lexma-blink 1s infinite alternate;
+}
+
+@keyframes lexma-blink {
+    from { opacity: 0.3; }
+    to { opacity: 1; }
+}
+
+@keyframes lexma-btn-pulse {
+    0% {
+        box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4);
+    }
+    70% {
+        box-shadow: 0 0 0 6px rgba(239, 68, 68, 0);
+    }
+    100% {
+        box-shadow: 0 0 0 0 rgba(239, 68, 68, 0);
+    }
+}
+
+.lexma-btn-hidden {
+    display: none !important;
 }
 
 /* Timeline/Transcript Section */
@@ -154,26 +188,33 @@
     gap: 8px;
 }
 
-.lexma-transcript-fragment {
+/* Subtitle Timeline Layout */
+.lexma-transcript-line {
     display: flex;
-    flex-direction: column;
-    gap: 2px;
-    font-size: 0.9em;
-    padding: 6px 8px;
-    background-color: var(--background-secondary);
-    border-radius: 6px;
-    border-left: 3px solid var(--interactive-accent);
+    align-items: flex-start;
+    gap: 8px;
+    padding: 4px 6px;
+    font-size: 0.85em;
+    line-height: 1.4;
+    border-bottom: 1px solid var(--border-color-translucent, rgba(255, 255, 255, 0.05));
     animation: lexma-slide-in 0.2s ease-out;
 }
 
-.lexma-fragment-time {
-    font-size: 0.75em;
+.lexma-transcript-line .lexma-transcript-time {
+    font-size: 0.8em;
     color: var(--text-muted);
     font-family: monospace;
+    white-space: nowrap;
+    margin-top: 2px;
 }
 
-.lexma-fragment-text {
-    line-height: 1.4;
+.lexma-transcript-line .lexma-transcript-text {
+    flex: 1;
+    color: var(--text-normal);
+}
+
+.lexma-transcript-line .lexma-transcript-text p {
+    margin: 0;
 }
 
 /* Chat Section */
@@ -200,10 +241,11 @@
     display: flex;
     flex-direction: column;
     max-width: 85%;
-    padding: 8px 12px;
-    border-radius: 12px;
+    padding: 10px 14px;
+    border-radius: 14px;
     font-size: 0.9em;
     line-height: 1.4;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
     animation: lexma-slide-in 0.2s ease-out;
 }
 
@@ -216,10 +258,23 @@
 
 .lexma-chat-msg.is-assistant {
     align-self: flex-start;
-    background-color: var(--background-secondary);
+    background-color: var(--background-secondary-alt);
     color: var(--text-normal);
     border-bottom-left-radius: 2px;
     border: 1px solid var(--border-color);
+}
+
+.lexma-chat-msg p {
+    margin: 0 0 8px 0;
+}
+
+.lexma-chat-msg p:last-child {
+    margin-bottom: 0;
+}
+
+.lexma-chat-msg ul, .lexma-chat-msg ol {
+    margin: 4px 0;
+    padding-left: 20px;
 }
 
 @keyframes lexma-slide-in {
@@ -299,19 +354,25 @@
     background: transparent;
 }
 
-/* Active Targets Display */
-.lexma-targets-container {
+/* Compact Header Styling */
+.lexma-header-top-row {
     display: flex;
-    flex-direction: column;
-    gap: 4px;
+    justify-content: space-between;
+    align-items: center;
     width: 100%;
-    margin-top: 4px;
 }
 
-.lexma-active-target {
-    font-size: 0.8em;
-    padding: 4px 8px;
-    background-color: var(--background-primary);
+.lexma-targets-row {
+    display: flex;
+    gap: 6px;
+    width: 100%;
+}
+
+.lexma-target-item {
+    flex: 1;
+    font-size: 0.75em;
+    padding: 3px 6px;
+    background-color: var(--background-secondary-alt);
     border: 1px solid var(--border-color);
     border-radius: 4px;
     color: var(--text-muted);
@@ -365,12 +426,55 @@
 }
 
 /* System Notifications */
-.lexma-transcript-fragment.is-system {
-    border-left: none !important;
-    background-color: transparent !important;
-    padding: 2px 4px !important;
-    font-size: 0.8em;
+.lexma-transcript-line.is-system {
+    border-bottom: none !important;
+    padding: 2px 6px !important;
+    font-style: italic;
+    opacity: 0.85;
+}
+
+.lexma-transcript-line.is-system .lexma-transcript-text {
     color: var(--text-muted);
-    margin: 2px 0;
-    box-shadow: none !important;
+}
+
+.lexma-sync-timer {
+    font-size: 0.85em;
+    color: var(--interactive-accent);
+    font-weight: 500;
+}
+
+/* Mobile Optimization */
+@media (max-width: 480px) {
+    .lexma-sidebar-container {
+        padding: 8px;
+        gap: 12px;
+    }
+    .lexma-header {
+        padding-bottom: 8px;
+        gap: 6px;
+    }
+    .lexma-title {
+        font-size: 1.25em;
+    }
+    .lexma-active-target {
+        font-size: 0.75em;
+        padding: 2px 6px;
+    }
+    .lexma-record-btn {
+        padding: 5px 10px;
+        font-size: 0.8em;
+    }
+    .lexma-tab-btn {
+        padding: 6px 8px;
+        font-size: 0.8em;
+    }
+    .lexma-transcript-line {
+        font-size: 0.8em;
+        padding: 3px 4px;
+        gap: 6px;
+    }
+    .lexma-chat-msg {
+        font-size: 0.8em;
+        padding: 6px 10px;
+    }
 }

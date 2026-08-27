@@ -39,7 +39,9 @@ export class LexmaOrchestrator {
 	rollingSummary = '';
 	chatHistory: Message[] = [];
 	activeSlide: SlideContext | null = null;
-	syncIntervalId: number | null = null;
+	tickIntervalId: number | null = null;
+	syncSecondsRemaining = 0;
+	sessionStartTime = 0;
 
 	// UI View Leaf callback
 	onStateChange: () => void = () => {};
@@ -93,14 +95,16 @@ export class LexmaOrchestrator {
 		this.settings = settings;
 		this.audioRecorder.updateThreshold(settings.vadEnabled, settings.vadThreshold);
 		if (this.isRecording) {
-			if (this.syncIntervalId) {
-				window.clearInterval(this.syncIntervalId);
+			if (this.syncSecondsRemaining > this.settings.syncInterval) {
+				this.syncSecondsRemaining = this.settings.syncInterval;
 			}
-			this.syncIntervalId = window.setInterval(async () => {
-				if (this.isRecording) {
-					await this.triggerAutopilotNoteSync();
-				}
-			}, this.settings.syncInterval * 1000);
+		}
+	}
+
+	private cleanupTimers() {
+		if (this.tickIntervalId) {
+			window.clearInterval(this.tickIntervalId);
+			this.tickIntervalId = null;
 		}
 	}
 
@@ -124,24 +128,37 @@ export class LexmaOrchestrator {
 			await this.audioRecorder.start(this.settings.vadEnabled, this.settings.vadThreshold);
 		} catch (err) {
 			this.isRecording = false;
-			if (this.syncIntervalId) {
-				window.clearInterval(this.syncIntervalId);
-				this.syncIntervalId = null;
-			}
+			this.cleanupTimers();
 			new Notice(`Failed to start recording: ${(err as any).message || err}`);
 			return;
 		}
 		this.updateActiveTargets();
 
-		// Start periodic note sync timer
-		if (this.syncIntervalId) {
-			window.clearInterval(this.syncIntervalId);
-		}
-		this.syncIntervalId = window.setInterval(async () => {
+		// Start periodic note sync and check max record duration
+		this.syncSecondsRemaining = this.settings.syncInterval;
+		this.sessionStartTime = Date.now();
+		
+		this.cleanupTimers();
+		this.tickIntervalId = window.setInterval(async () => {
 			if (this.isRecording) {
-				await this.triggerAutopilotNoteSync();
+				// 1. Sync Countdown ticking
+				this.syncSecondsRemaining--;
+				if (this.syncSecondsRemaining <= 0) {
+					this.syncSecondsRemaining = this.settings.syncInterval;
+					await this.triggerAutopilotNoteSync();
+				}
+
+				// 2. Max session duration checking (minutes)
+				const elapsedMinutes = (Date.now() - this.sessionStartTime) / 60000;
+				if (elapsedMinutes >= this.settings.maxRecordTime) {
+					this.emitSystemLog(`[System]: Session automatically stopped after reaching maximum recording duration of ${this.settings.maxRecordTime} minutes.`);
+					await this.stopSession();
+					new Notice('Lexma: Maximum recording duration reached. Session stopped.');
+				} else {
+					this.onStateChange();
+				}
 			}
-		}, this.settings.syncInterval * 1000);
+		}, 1000);
 		
 		new Notice('Lexma recording session started!');
 	}
@@ -153,10 +170,7 @@ export class LexmaOrchestrator {
 		this.audioRecorder.stop();
 		this.isRecording = false;
 
-		if (this.syncIntervalId) {
-			window.clearInterval(this.syncIntervalId);
-			this.syncIntervalId = null;
-		}
+		this.cleanupTimers();
 		
 		// Flush any remaining transcripts to note one last time
 		if (this.unsyncedTranscripts.length > 0) {
@@ -264,7 +278,13 @@ export class LexmaOrchestrator {
 		const noteFile = this.app.vault.getAbstractFileByPath(this.activeNotePath);
 		if (noteFile instanceof TFile) {
 			this.emitSystemLog(`🤖 [Agent]: Appending new details to note "${noteFile.name}".`);
-			const formattedAppend = `\n\n${contentToAppend.trim()}`;
+			
+			let processedContent = contentToAppend.trim();
+			if (processedContent.length > this.settings.maxAppendLength) {
+				processedContent = processedContent.substring(0, this.settings.maxAppendLength).trim() + '\n\n*(Truncated due to max length setting)*';
+			}
+
+			const formattedAppend = `\n\n${processedContent}`;
 			await this.app.vault.append(noteFile, formattedAppend);
 			this.logStatus('Vault note appended successfully by the agent.');
 			new Notice('Lexma appended new details to note.');
@@ -299,6 +319,24 @@ export class LexmaOrchestrator {
 		}
 	}
 
+	private getPDFRefPromptInstructions(pdfName: string | null, pageNum: number | null): string {
+		if (!pdfName || pageNum === null || this.settings.pdfRefMode === 'none') {
+			return 'Do NOT add any PDF slide embed previews or page link tags under any circumstances. Simply describe the slide concepts in text.';
+		}
+		
+		if (this.settings.pdfRefMode === 'preview') {
+			return `When referring to concepts on the current slide page (${pageNum}), embed a live preview of that page using the standard Obsidian syntax exactly: ![[${pdfName}#page=${pageNum}]]. For example: "According to ![[${pdfName}#page=${pageNum}]]..."`;
+		}
+		
+		if (this.settings.pdfRefMode === 'dropdown') {
+			return `When referring to concepts on the current slide page (${pageNum}), embed a collapsible slide preview using the following callout structure exactly (do not change its format or tags):
+> [!example]- PDF ${pageNum} direkt ansehen
+> ![[${pdfName}#page=${pageNum}]]`;
+		}
+		
+		return '';
+	}
+
 	async triggerAutopilotNoteSync() {
 		if (!this.activeNotePath) return;
 		if (this.unsyncedTranscripts.length === 0) {
@@ -320,7 +358,16 @@ export class LexmaOrchestrator {
 			? `Other PDFs in the note's folder:\n- ${pdfsInFolder.join('\n- ')}` 
 			: 'No other PDFs found in this note\'s folder.';
 
-		const systemInstructions = this.settings.systemPrompt;
+		const pdfPath = this.activeSlide?.file;
+		const pdfName = pdfPath ? pdfPath.substring(pdfPath.lastIndexOf('/') + 1) : null;
+		const pageNum = this.activeSlide?.page ?? null;
+		const pdfRefInstructions = this.getPDFRefPromptInstructions(pdfName, pageNum);
+
+		const systemInstructions = `${this.settings.systemPrompt}
+
+PDF REFERENCE METHOD: ${pdfRefInstructions}
+
+CRITICAL LIMIT: Do NOT generate more than ${this.settings.maxAppendLength} characters of text to append. Keep your update brief and under this limit.`;
 
 		const userMessage = `[CURRENT NOTE CONTENT]
 ${currentNoteContent}
@@ -441,6 +488,11 @@ ${olderText}`;
 			}
 		}
 
+		const pdfPath = this.activeSlide?.file;
+		const pdfName = pdfPath ? pdfPath.substring(pdfPath.lastIndexOf('/') + 1) : null;
+		const pageNum = this.activeSlide?.page ?? null;
+		const pdfRefInstructions = this.getPDFRefPromptInstructions(pdfName, pageNum);
+
 		const systemPrompt = `You are Lexma, a lecture assistant.
 Answer the user's questions about the lecture and the current slide.
 You have the ability to read and write to the user's active note.
@@ -460,7 +512,10 @@ ${this.rollingSummary || 'None'}
 [CONTEXT: ACTIVE FOLDER FILE LIST]
 ${pdfsContext}
 
-If the user asks you to modify, add, format, or clean up the active note, you must call the append_to_note tool with the new content to be appended to the note. Do not modify or delete existing notes.`;
+PDF REFERENCE METHOD: ${pdfRefInstructions}
+
+If the user asks you to modify, add, format, or clean up the active note, you must call the append_to_note tool with the new content to be appended to the note. Do not modify or delete existing notes.
+CRITICAL LIMIT: Do NOT generate more than ${this.settings.maxAppendLength} characters in your tool call content. Keep it brief and structured.`;
 
 		const apiMessages = [
 			{ role: 'system', content: systemPrompt },

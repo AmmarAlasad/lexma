@@ -3,16 +3,18 @@ import LexmaPlugin from './main';
 import { LexmaSettings } from './types';
 
 export const DEFAULT_SYSTEM_PROMPT = `You are Lexma Autopilot, a lecture note-taking agent.
-Your goal is to append new summaries, notes, and diagrams to the current lecture notes, incorporating new details from the live lecture transcript and active PDF slide context.
+Your goal is to append new summaries and key takeaways to the current lecture notes, incorporating new details from the live lecture transcript and active PDF slide context.
 
 Core Instructions:
 1. Review the existing notes, active slide text, and the new spoken transcript.
-2. Formulate clear, structured information to append. Use Obsidian Markdown syntax (headers, bolding, bullet points).
-3. If the professor details an exam-relevant point, create a collapsible callout block: \`> [!faq] Exam Prep\`.
-4. If a process, sequence, or structural hierarchy is explained, generate a \`\`\`mermaid\`\`\` code block diagram.
-5. Refer to slide pages when adding details (e.g. "On slide 3, the professor added...").
-6. Do NOT modify or delete any existing content in the note. You are strictly allowed to APPEND new information to the end of the note.
-7. Call the 'append_to_note' tool to perform this append, or wrap your proposed content to append in <append_note> and </append_note> tags. Do not output anything outside these tags when appending.`;
+2. Formulate extremely concise, high-yield structured information to append. Focus ONLY on important points (definitions, equations, core concepts). Avoid fluffy summaries or repeating information already in the note.
+3. Use Obsidian callout blocks strategically to categorize smart takeaways:
+   - For exam-relevant/test info (Klausur): \`> [!info] 🎯 Klausur-Info: [Topic]\`
+   - For critical warnings/common pitfalls: \`> [!warning] ⚠️ Warnung: [Topic]\`
+   - For key slides or general explanations: \`> [!note] 💡 Anmerkung: [Topic]\`
+4. Do NOT generate diagrams (such as Mermaid graphs) unless a complex process, sequence, or structural hierarchy is explicitly explained in detail and a diagram is highly necessary. By default, write notes in structured text.
+5. Do NOT modify or delete any existing content in the note. You are strictly allowed to APPEND new information to the end of the note.
+6. Call the 'append_to_note' tool to perform this append, or wrap your proposed content to append in <append_note> and </append_note> tags. Do not output anything outside these tags when appending.`;
 
 export const DEFAULT_SETTINGS: LexmaSettings = {
 	openRouterKey: '',
@@ -22,6 +24,10 @@ export const DEFAULT_SETTINGS: LexmaSettings = {
 	vadThreshold: -50,
 	systemPrompt: DEFAULT_SYSTEM_PROMPT,
 	syncInterval: 180,
+	maxAppendLength: 1000,
+	maxRecordTime: 90,
+	hideRecordButton: false,
+	pdfRefMode: 'none',
 };
 
 export class LexmaSettingTab extends PluginSettingTab {
@@ -181,6 +187,61 @@ export class LexmaSettingTab extends PluginSettingTab {
 					.setDynamicTooltip()
 					.onChange(async (value) => {
 						this.plugin.settings.syncInterval = value;
+						await this.plugin.saveSettings();
+					})
+			);
+
+		new Setting(containerEl)
+			.setName('Max append length (characters)')
+			.setDesc('Maximum character length of content added to the note per autopilot run.')
+			.addSlider((slider) =>
+				slider
+					.setLimits(200, 5000, 100)
+					.setValue(this.plugin.settings.maxAppendLength)
+					.setDynamicTooltip()
+					.onChange(async (value) => {
+						this.plugin.settings.maxAppendLength = value;
+						await this.plugin.saveSettings();
+					})
+			);
+
+		new Setting(containerEl)
+			.setName('Max recording duration (minutes)')
+			.setDesc('Maximum duration allowed for a single recording session.')
+			.addSlider((slider) =>
+				slider
+					.setLimits(15, 240, 15)
+					.setValue(this.plugin.settings.maxRecordTime)
+					.setDynamicTooltip()
+					.onChange(async (value) => {
+						this.plugin.settings.maxRecordTime = value;
+						await this.plugin.saveSettings();
+					})
+			);
+
+		new Setting(containerEl)
+			.setName('Hide record button in session')
+			.setDesc('Hide the record button once recording starts. Click the status indicator at the top of the sidebar view to reveal it again.')
+			.addToggle((toggle) =>
+				toggle
+					.setValue(this.plugin.settings.hideRecordButton)
+					.onChange(async (value) => {
+						this.plugin.settings.hideRecordButton = value;
+						await this.plugin.saveSettings();
+					})
+			);
+
+		new Setting(containerEl)
+			.setName('PDF link reference mode')
+			.setDesc('Configure how the agent references PDF slides in notes.')
+			.addDropdown((dropdown) =>
+				dropdown
+					.addOption('none', 'None (no references)')
+					.addOption('preview', 'Embed Preview (![[pdf.pdf#page=x]])')
+					.addOption('dropdown', 'Collapsible Dropdown Preview (> [!example]- PDF x...)')
+					.setValue(this.plugin.settings.pdfRefMode)
+					.onChange(async (value) => {
+						this.plugin.settings.pdfRefMode = value as 'none' | 'preview' | 'dropdown';
 						await this.plugin.saveSettings();
 					})
 			);
